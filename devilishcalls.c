@@ -21,6 +21,7 @@ MODULE_LICENSE("Dual MIT/GPL");
 
 unsigned long original_cr0;
 unsigned long *sys_write_address;
+unsigned long **sct = NULL;
 
 asmlinkage long (* orig_write) (unsigned int, const char __user *, size_t);
 
@@ -30,24 +31,23 @@ asmlinkage long new_write(unsigned int fd, const char __user *buf, size_t count)
 	return orig_write(fd, buf, count);
 }
 
-static unsigned long **find_address_sct(void)
+static int find_address_sct(void)
 {
-	unsigned long **sct;
 	unsigned long offset = PAGE_OFFSET;	// Start of kernel RAM
 
 	printk(KERN_INFO "looking for sct address\n");
 	while (offset < ULLONG_MAX) {
 		sct = (unsigned long **)offset;
 
-		printk(KERN_INFO "offset = %lu\n", offset);
+		printk(KERN_INFO "offset = %lx\n", offset);
 		if (sct[__NR_write] == sys_write_address) {
-			return sct;
+			return 0;
 		}
 
 		offset += sizeof(void *);
 	}
 	// Couldn't find it
-	return 0;
+	return -1;
 }
 
 static int find_address_write(void)
@@ -84,7 +84,7 @@ static int find_address_write(void)
 				// Separate the address field from the string
 				strncpy(tmp, strsep(&ptr, " "), MAX_LEN);
 				sys_write_address = (unsigned long *)
-						simple_strtol(tmp, NULL, 16);
+						simple_strtoul(tmp, NULL, 16);
 				kfree(tmp);
 				break;
 			}
@@ -109,16 +109,22 @@ static int assign_hook(unsigned long **sct)
 	return 0;
 }
 
+static int unassign_hook(void) {
+	printk(KERN_INFO "Removing sys_write hook\n");
+	write_cr0(original_cr0 & ~0x10000);
+	sct[__NR_write] = (void *) orig_write;
+	write_cr0(original_cr0);
+	return 0;
+}
+
 static int __init loader(void)
 {
-	unsigned long **sct;
 	original_cr0 = read_cr0();
 
 	printk(KERN_EMERG "Loading %s\n", MODULENAME);
 	if (find_address_write() < 0)
 		return -EIO;
-	sct = find_address_sct();
-	if (!sct) {
+	if (find_address_sct() < 0) {
 		printk(KERN_INFO "Failed to retrieve sct\n");
 	} else {
 		printk(KERN_INFO "System call table found!\n");
@@ -130,7 +136,7 @@ static int __init loader(void)
 
 static void __exit reset(void)
 {
-	// the function remains hooked for now xD
+	unassign_hook();
 	printk(KERN_INFO "Unloaded %s\n", MODULENAME);
 }
 

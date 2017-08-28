@@ -13,7 +13,9 @@
 #include <asm/page.h>		// PAGE_OFFSET
 #include <asm/unistd.h>		// System call number numbers
 
-#define MODULENAME "Devilish"
+#ifndef MODULE_NAME
+#define MODULE_NAME "Devilish"
+#endif
 #define MAX_LEN 256
 #define SYMBOLS "/proc/kallsyms"
 
@@ -121,7 +123,7 @@ static int __init loader(void)
 {
 	original_cr0 = read_cr0();
 
-	printk(KERN_EMERG "Loading %s\n", MODULENAME);
+	printk(KERN_EMERG "Loading %s\n", MODULE_NAME);
 	if (find_address_write() < 0)
 		return -EIO;
 	if (find_address_sct() < 0) {
@@ -130,7 +132,7 @@ static int __init loader(void)
 		printk(KERN_INFO "System call table found!\n");
 		assign_hook(sct);
 	}
-	printk(KERN_EMERG "Loaded %s successfully\n", MODULENAME);
+	printk(KERN_EMERG "Loaded %s successfully\n", MODULE_NAME);
 	return 0;
 }
 

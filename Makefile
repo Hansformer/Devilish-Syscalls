@@ -1,6 +1,7 @@
-obj-m += devilishcalls.o
+MODULE_NAME = devilish
 
-all:
-	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
-clean:
-	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+obj-m += $(MODULE_NAME).o
+
+$(MODULE_NAME)-objs := devilishcalls.o
+
+EXTRA_CFLAGS += -Werror

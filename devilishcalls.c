@@ -39,14 +39,14 @@ static unsigned long **find_address_sct(void)
 	while (offset < ULLONG_MAX) {
 		sct = (unsigned long **)offset;
 
-		printk(KERN_INFO "offset = %ld\n", offset);
+		printk(KERN_INFO "offset = %lu\n", offset);
 		if (sct[__NR_write] == sys_write_address) {
 			return sct;
 		}
 
 		offset += sizeof(void *);
 	}
-
+	// Couldn't find it
 	return 0;
 }
 
@@ -118,7 +118,7 @@ static int __init loader(void)
 	if (find_address_write() < 0)
 		return -EIO;
 	sct = find_address_sct();
-	if (sct < 0) {
+	if (!sct) {
 		printk(KERN_INFO "Failed to retrieve sct\n");
 	} else {
 		printk(KERN_INFO "System call table found!\n");

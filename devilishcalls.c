@@ -41,7 +41,6 @@ static int find_address_sct(void)
 	while (offset < ULLONG_MAX) {
 		sct = (unsigned long **)offset;
 
-		printk(KERN_INFO "offset = %lx\n", offset);
 		if (sct[__NR_write] == sys_write_address) {
 			return 0;
 		}
@@ -139,7 +138,7 @@ static int __init loader(void)
 static void __exit reset(void)
 {
 	unassign_hook();
-	printk(KERN_INFO "Unloaded %s\n", MODULENAME);
+	printk(KERN_INFO "Unloaded %s\n", MODULE_NAME);
 }
 
 module_init(loader);

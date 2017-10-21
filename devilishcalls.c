@@ -8,10 +8,11 @@
 #include <linux/syscalls.h>	// System calls
 #include <linux/types.h>	// ULLONG_MAX
 #include <linux/linkage.h>	// asmlinkage
+#include <linux/delay.h>
 
 #include <asm/paravirt.h>	// write/read_cr0
 #include <asm/page.h>		// PAGE_OFFSET
-#include <asm/unistd.h>		// System call number numbers
+#include <asm/unistd.h>		// System call numbers
 
 #ifndef MODULE_NAME
 #define MODULE_NAME "Devilish"
@@ -19,30 +20,33 @@
 #define MAX_LEN 256
 #define SYMBOLS "/proc/kallsyms"
 
+MODULE_AUTHOR("Mikael Heino");
 MODULE_LICENSE("Dual MIT/GPL");
 
-void *sys_write_address;
+unsigned long *sys_reboot_address;
 unsigned long **sct = NULL;
 
-asmlinkage long (* orig_write) (unsigned int, const char __user *, size_t);
+asmlinkage long (* orig_reboot) (int, int);
 
-asmlinkage long new_write(unsigned int fd, const char __user *buf, size_t count)
+asmlinkage long new_reboot(int a0, int a1)
 {
-	printk(KERN_INFO "Write hook!\n");
-	return orig_write(fd, buf, count);
+	printk(KERN_EMERG "sys_reboot hooked!\n");
+	printk(KERN_EMERG "now we wait...\n");
+	ssleep(5);
+	return orig_shutdown(a0, a1);
 }
 
 static int find_address_sct(void)
 {
 	unsigned long offset = PAGE_OFFSET;	// Start of kernel RAM
 
-	printk(KERN_INFO "sys_write_address = %p\n", sys_write_address);
+	printk(KERN_INFO "sys_reboot_address = %p\n", sys_reboot_address);
 	printk(KERN_INFO "looking for sct address\n");
 	while (offset < ULLONG_MAX) {
 		sct = (unsigned long **)offset;
 
-
-		if (sct[__NR_write] == sys_write_address) {
+		if (sct[__NR_reboot] == sys_reboot_address) {
+			printk(KERN_INFO "found sct[__NR_reboot]");
 			return 0;
 		}
 
@@ -52,7 +56,7 @@ static int find_address_sct(void)
 	return -1;
 }
 
-static int find_address_write(void)
+static int find_address_reboot(void)
 {
 	struct file *fp = NULL;
 	int i = 0;
@@ -73,7 +77,7 @@ static int find_address_write(void)
 	while(vfs_read(fp, ptr+i, 1, &fp->f_pos) == 1) {
 		if (ptr[i] == '\n' || i == 255) {
 			i = 0;
-			if ((strstr(ptr, "sys_write") != NULL)) {
+			if ((strstr(ptr, "sys_reboot") != NULL)) {
 				printk(KERN_INFO "ptr = %s\n", ptr);
 
 				tmp = kzalloc(MAX_LEN, GFP_KERNEL);
@@ -85,7 +89,7 @@ static int find_address_write(void)
 				}
 				// Separate the address field from the string
 				strncpy(tmp, strsep(&ptr, " "), MAX_LEN);
-				sys_write_address = (void *)
+				sys_shutdown_address = (unsigned long *)
 						simple_strtoul(tmp, NULL, 16);
 				kfree(tmp);
 				break;
@@ -103,18 +107,16 @@ static int find_address_write(void)
 
 static int assign_hook(unsigned long **sct)
 {
-	printk(KERN_INFO "Attempting to hook sys_write\n");
 	write_cr0(read_cr0() & (~ 0x10000));		// Swap the ro flag to rw
-	orig_write = (void *) sct[__NR_write];		// save for later
-	sct[__NR_write] = (long *) new_write;		// assign our own function
+	orig_reboot = (void *) sct[__NR_reboot];	// save for later
+	sct[__NR_reboot] = (long *) new_reboot;	// assign our own function
 	write_cr0(read_cr0() | 0x10000);
 	return 0;
 }
 
 static int unassign_hook(void) {
-	printk(KERN_INFO "Removing sys_write hook\n");
 	write_cr0(read_cr0() & (~ 0x10000));
-	sct[__NR_write] = (void *) orig_write;
+	sct[__NR_reboot] = (void *) orig_reboot;
 	write_cr0(read_cr0() | 0x10000);
 	return 0;
 }
@@ -123,7 +125,7 @@ static int __init loader(void)
 {
 
 	printk(KERN_EMERG "Loading %s\n", MODULE_NAME);
-	if (find_address_write() < 0)
+	if (find_address_reboot() < 0)
 		return -EIO;
 	if (find_address_sct() < 0) {
 		printk(KERN_INFO "Failed to retrieve sct\n");

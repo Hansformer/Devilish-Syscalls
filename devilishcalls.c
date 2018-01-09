@@ -31,9 +31,7 @@ asmlinkage long (* orig_reboot) (int, int);
 asmlinkage long new_reboot(int a0, int a1)
 {
 	printk(KERN_EMERG "sys_reboot hooked!\n");
-	printk(KERN_EMERG "now we wait...\n");
-	ssleep(5);
-	return orig_shutdown(a0, a1);
+	return -EPERM;
 }
 
 static int find_address_sct(void)
@@ -74,7 +72,7 @@ static int find_address_reboot(void)
 
 	memset(buf, 0x0, MAX_LEN);
 	ptr = buf;
-	while(vfs_read(fp, ptr+i, 1, &fp->f_pos) == 1) {
+	while(kernel_read(fp, ptr+i, 1, &fp->f_pos) == 1) {
 		if (ptr[i] == '\n' || i == 255) {
 			i = 0;
 			if ((strstr(ptr, "sys_reboot") != NULL)) {
@@ -89,7 +87,7 @@ static int find_address_reboot(void)
 				}
 				// Separate the address field from the string
 				strncpy(tmp, strsep(&ptr, " "), MAX_LEN);
-				sys_shutdown_address = (unsigned long *)
+				sys_reboot_address = (unsigned long *)
 						simple_strtoul(tmp, NULL, 16);
 				kfree(tmp);
 				break;

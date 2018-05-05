@@ -7,4 +7,4 @@ For example read can be swapped to write :^)
 * The table resides in a read-only part of the memory (for rather obvious reasons), so in order to actually edit it we have to mark that area writable.
 
 ### State
-* It works on my machine
+* It works on my machine, tested on 4.14 Arch Linux default kernel
